@@ -36,7 +36,7 @@ import Foundation
 /// Supported devices:
 /// - Baseus Editor Max / BS-007 Max (0xFFF1:0x0012)
 struct BaseusEditorMaxHandler: InputReportHandler {
-    private struct Product: Hashable {
+    struct Product: Hashable {
         let vendorID: Int
         let productID: Int
     }
