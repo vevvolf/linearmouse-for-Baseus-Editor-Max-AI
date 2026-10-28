@@ -16,11 +16,11 @@ final class StatusItemBatteryIndicatorTests: XCTestCase {
     }
 
     func testMenuBarBatteryTitleShownAtThreshold() {
-        XCTAssertEqual(StatusItem.menuBarBatteryTitle(currentBatteryLevel: 20, mode: .below20), "20%")
+        XCTAssertEqual(StatusItem.menuBarBatteryTitle(currentBatteryLevel: 20, mode: .below20), formattedPercent(20))
     }
 
     func testMenuBarBatteryTitleAlwaysShowMode() {
-        XCTAssertEqual(StatusItem.menuBarBatteryTitle(currentBatteryLevel: 100, mode: .always), "100%")
+        XCTAssertEqual(StatusItem.menuBarBatteryTitle(currentBatteryLevel: 100, mode: .always), formattedPercent(100))
     }
 
     func testMenuBarVisibilityAlwaysShowsWithoutBatteryLevel() {
