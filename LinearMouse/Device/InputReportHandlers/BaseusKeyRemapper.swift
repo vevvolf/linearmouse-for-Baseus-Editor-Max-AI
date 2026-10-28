@@ -35,6 +35,9 @@ final class BaseusKeyRemapper {
     private static let userKeyMappingKey = "UserKeyMapping" as CFString
 
     private let lock = NSLock()
+    /// Kept for the lifetime of the app: service clients obtained from an event system client
+    /// become invalid once that client is released, and setting a property on them then crashes.
+    private let eventSystemClient = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
     private var remappedServiceIDs: Set<UInt64> = []
     private var lastAttempt: TimeInterval = -.infinity
     private var terminationObserver: NSObjectProtocol?
@@ -67,7 +70,7 @@ final class BaseusKeyRemapper {
         ]]
 
         var liveServiceIDs: Set<UInt64> = []
-        for service in Self.matchingKeyboardServices() {
+        for service in matchingKeyboardServices() {
             guard let serviceID = Self.registryID(of: service) else {
                 continue
             }
@@ -101,22 +104,21 @@ final class BaseusKeyRemapper {
         lock.lock()
         defer { lock.unlock() }
 
-        for service in Self.matchingKeyboardServices() {
+        for service in matchingKeyboardServices() {
             _ = IOHIDServiceClientSetProperty(service, Self.userKeyMappingKey, [] as CFArray)
         }
         remappedServiceIDs.removeAll()
         lastAttempt = -.infinity
     }
 
-    private static func matchingKeyboardServices() -> [IOHIDServiceClient] {
-        let client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
-        guard let services = IOHIDEventSystemClientCopyServices(client) as? [IOHIDServiceClient] else {
+    private func matchingKeyboardServices() -> [IOHIDServiceClient] {
+        guard let services = IOHIDEventSystemClientCopyServices(eventSystemClient) as? [IOHIDServiceClient] else {
             return []
         }
         return services.filter { service in
-            intProperty(service, kIOHIDVendorIDKey) == vendorID
-                && intProperty(service, kIOHIDProductIDKey) == productID
-                && conformsToKeyboard(service)
+            Self.intProperty(service, kIOHIDVendorIDKey) == Self.vendorID
+                && Self.intProperty(service, kIOHIDProductIDKey) == Self.productID
+                && Self.conformsToKeyboard(service)
         }
     }
 
