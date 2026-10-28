@@ -21,7 +21,8 @@ import Foundation
 ///   assistant): only the "macro finished" cleanup, an empty report 1 followed by an empty
 ///   report 2, after release. It can therefore only act as a click, never a hold. The M
 ///   button sends the same cleanup roughly 500 ms after its own release, and sometimes about
-///   170 ms *before* its F11. A cleanup therefore counts as an AI click only when no M
+///   170 ms *before* its F11. The ordinary buttons (left, right, ...) also send it about
+///   550 ms after release. A cleanup therefore counts as an AI click only when no button
 ///   activity happened shortly before it, and the click is held back briefly and dropped if
 ///   F11 follows.
 ///
@@ -47,6 +48,7 @@ struct BaseusEditorMaxHandler: InputReportHandler {
 
     static let keyboardReportID: UInt8 = 0x01
     static let consumerReportID: UInt8 = 0x02
+    static let mouseReportID: UInt8 = 0x03
     /// HID keyboard usage the firmware sends for the M button (F11).
     static let mButtonKeyUsage: UInt8 = 0x44
 
@@ -57,8 +59,8 @@ struct BaseusEditorMaxHandler: InputReportHandler {
     /// Bit used in `InputReportContext.lastButtonStates` to remember that M is held.
     private static let mButtonMask: UInt8 = 1 << 3
 
-    /// A cleanup arriving this soon after M activity belongs to M, not to the AI button.
-    static let mCleanupWindow: TimeInterval = 0.8
+    /// A cleanup arriving this soon after button activity belongs to that button, not to AI.
+    static let buttonCleanupWindow: TimeInterval = 0.8
     /// Ignore cleanups that follow an AI click this closely (duplicate reports).
     static let aiDebounce: TimeInterval = 0.25
     /// How long an AI click is held back in case F11 follows (M sometimes leads with a cleanup).
@@ -76,7 +78,9 @@ struct BaseusEditorMaxHandler: InputReportHandler {
     /// such mouse is expected, so a single box is enough.
     private final class State {
         let lock = NSLock()
-        var lastMActivity: TimeInterval = -.infinity
+        /// Last M or regular mouse button activity; any of them is followed by a cleanup.
+        var lastButtonActivity: TimeInterval = -.infinity
+        var lastMouseButtons: UInt8 = 0
         var lastAIClick: TimeInterval = -.infinity
         /// Bumped by every M press; a pending AI click only fires if it is unchanged.
         var mPressGeneration = 0
@@ -120,6 +124,8 @@ struct BaseusEditorMaxHandler: InputReportHandler {
             handleKeyboardReport(context)
         case Self.consumerReportID:
             handleConsumerReport(context)
+        case Self.mouseReportID:
+            handleMouseReport(context)
         default:
             break
         }
@@ -141,7 +147,7 @@ struct BaseusEditorMaxHandler: InputReportHandler {
 
         if mDown || wasDown {
             state.lock.lock()
-            state.lastMActivity = now()
+            state.lastButtonActivity = now()
             if mDown, !wasDown {
                 state.mPressGeneration += 1
             }
@@ -160,6 +166,22 @@ struct BaseusEditorMaxHandler: InputReportHandler {
         }
     }
 
+    private func handleMouseReport(_ context: InputReportContext) {
+        // | ID | buttons | X | Y | wheel | AC pan |
+        guard context.report.count >= 2 else {
+            return
+        }
+
+        // Only note the activity; the report itself is left to macOS.
+        let buttons = context.report[context.report.startIndex + 1]
+        state.lock.lock()
+        if buttons != 0 || buttons != state.lastMouseButtons {
+            state.lastButtonActivity = now()
+        }
+        state.lastMouseButtons = buttons
+        state.lock.unlock()
+    }
+
     private func handleConsumerReport(_ context: InputReportContext) {
         // Only the empty cleanup report is of interest.
         let isEmptyReport = context.report.dropFirst().allSatisfy { $0 == 0 }
@@ -173,7 +195,7 @@ struct BaseusEditorMaxHandler: InputReportHandler {
 
         state.lock.lock()
         let time = now()
-        guard time - state.lastMActivity > Self.mCleanupWindow,
+        guard time - state.lastButtonActivity > Self.buttonCleanupWindow,
               time - state.lastAIClick > Self.aiDebounce else {
             state.lock.unlock()
             return

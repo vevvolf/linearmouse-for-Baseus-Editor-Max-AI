@@ -163,6 +163,23 @@ final class BaseusEditorMaxHandlerTests: XCTestCase {
         assertEvents(harness, [(3, true), (3, false), (4, true), (4, false)])
     }
 
+    func testCleanupAfterLeftClickIsNotAnAIClick() {
+        // Captured: four left clicks, each followed ~550 ms after release by a cleanup.
+        let harness = Harness()
+        for (down, up, cleanup) in [(28.40, 28.52, 29.09), (29.16, 29.29, 29.82), (29.87, 29.98, 30.54),
+                                    (30.74, 30.87, 31.44)] {
+            harness.feed([0x03, 0x01, 0, 0, 0, 0], at: down)
+            harness.feed([0x03, 0x00, 0, 0, 0, 0], at: up)
+            harness.feed(Self.emptyKeyboard, at: cleanup)
+            harness.feed(Self.emptyConsumer, at: cleanup)
+        }
+        harness.feed(Self.emptyKeyboard, at: 35.00)
+        harness.feed(Self.emptyConsumer, at: 35.00) // AI click
+        harness.advance(to: 40)
+
+        assertEvents(harness, [(4, true), (4, false)])
+    }
+
     func testDuplicateCleanupIsDebounced() {
         let harness = Harness()
         harness.feed(Self.emptyConsumer, at: 5.00)
