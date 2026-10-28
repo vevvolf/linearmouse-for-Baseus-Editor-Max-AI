@@ -41,6 +41,21 @@ extension ButtonsSettingsState {
         set { scheme.buttons.swipe.lockPointer = newValue }
     }
 
+    var continuousSwipes: Bool {
+        get { mergedScheme.buttons.swipe.continuous ?? false }
+        set { scheme.buttons.swipe.continuous = newValue }
+    }
+
+    var spaceSwipeDistance: Double {
+        get { mergedScheme.buttons.swipe.effectiveSpaceSwipeDistance }
+        set { scheme.buttons.swipe.spaceSwipeDistance = newValue }
+    }
+
+    var missionControlSwipeDistance: Double {
+        get { mergedScheme.buttons.swipe.effectiveMissionControlSwipeDistance }
+        set { scheme.buttons.swipe.missionControlSwipeDistance = newValue }
+    }
+
     var hasSwipeSettingsOverride: Bool {
         scheme.buttons.$swipe != nil
     }

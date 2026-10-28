@@ -36,6 +36,28 @@ struct SwipeSettingsSection: View {
 
             Toggle("Lock pointer during swipes", isOn: $state.lockPointerDuringSwipe)
 
+            Toggle(isOn: $state.continuousSwipes) {
+                withDescription {
+                    Text("Trackpad-like swipes")
+                    Text(
+                        "Spaces, Mission Control and App Exposé follow the pointer like a four-finger trackpad swipe."
+                    )
+                }
+            }
+
+            if state.continuousSwipes {
+                distanceSlider(
+                    "Space switch distance",
+                    value: $state.spaceSwipeDistance,
+                    in: Scheme.Buttons.Swipe.spaceSwipeDistanceRange
+                )
+                distanceSlider(
+                    "Mission Control distance",
+                    value: $state.missionControlSwipeDistance,
+                    in: Scheme.Buttons.Swipe.missionControlSwipeDistanceRange
+                )
+            }
+
             Button("Reset") {
                 state.resetSwipeSettings()
             }
@@ -44,5 +66,26 @@ struct SwipeSettingsSection: View {
             Text("Swipe Settings")
         }
         .modifier(SectionViewModifier())
+    }
+
+    private func distanceSlider(
+        _ title: LocalizedStringKey,
+        value: Binding<Double>,
+        in range: ClosedRange<Double>
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Slider(value: value, in: range, step: 10) {
+                Text(title)
+            } minimumValueLabel: {
+                Text("Sensitive")
+            } maximumValueLabel: {
+                Text("Firm")
+            }
+            DeferredNumberField(value: value, formatter: Self.thresholdFormatter, range: range)
+                .frame(width: 72)
+                .accessibility(label: Text(title))
+            Text("pixels")
+                .foregroundColor(.secondary)
+        }
     }
 }

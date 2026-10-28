@@ -2952,6 +2952,72 @@
         }
       }
     },
+    "Firm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Туго"
+          }
+        }
+      }
+    },
+    "Mission Control distance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расстояние для Mission Control"
+          }
+        }
+      }
+    },
+    "Sensitive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чутко"
+          }
+        }
+      }
+    },
+    "Space switch distance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расстояние для смены рабочего стола"
+          }
+        }
+      }
+    },
+    "Spaces, Mission Control and App Exposé follow the pointer like a four-finger trackpad swipe." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочие столы, Mission Control и окна программы следуют за указателем, как при свайпе четырьмя пальцами по трекпаду."
+          }
+        }
+      }
+    },
+    "Trackpad-like swipes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свайпы как на трекпаде"
+          }
+        }
+      }
+    },
     "⇧ (Shift)" : {
       "localizations" : {
         "af" : {

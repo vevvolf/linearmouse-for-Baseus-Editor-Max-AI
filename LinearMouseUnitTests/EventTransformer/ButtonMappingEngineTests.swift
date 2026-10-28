@@ -133,6 +133,94 @@ final class ButtonMappingEngineTests: XCTestCase {
         XCTAssertFalse(engine.locksPointer)
     }
 
+    func testContinuousSpaceSwipeFollowsPointerUntilRelease() {
+        let swipe = Mapping.SwipeActions(left: .arg0(.missionControlSpaceRight), right: .arg0(.missionControlSpaceLeft))
+        var engine = ButtonMappingEngine(
+            mappings: [buttonMapping(3, swipe: swipe)],
+            policy: .configured(by: .init(threshold: 20, continuous: true))
+        )
+        _ = engine.buttonDown(.mouse(3), modifierFlags: [], at: 0)
+        XCTAssertEqual(engine.pointerMoved(for: .mouse(3), deltaX: -15, deltaY: 0, at: ms(10)).dockSwipeUpdates, [])
+
+        // Moving left goes to the Space on the right, starting from all recognized movement.
+        let commit = engine.pointerMoved(for: .mouse(3), deltaX: -10, deltaY: 2, at: ms(20))
+        XCTAssertEqual(commit.actions, [])
+        XCTAssertEqual(commit.dockSwipeUpdates, [.began(.horizontal), .changed(.horizontal, delta: 25)])
+        XCTAssertTrue(commit.discardsBufferedEvents)
+
+        // Later movement, including backtracking, keeps driving the same swipe.
+        let back = engine.pointerMoved(for: .mouse(3), deltaX: 40, deltaY: 30, at: ms(30))
+        XCTAssertTrue(back.consumesEvent)
+        XCTAssertEqual(back.dockSwipeUpdates, [.changed(.horizontal, delta: -40)])
+
+        let release = engine.buttonUp(.mouse(3), modifierFlags: [], at: ms(40))
+        XCTAssertTrue(release.consumesEvent)
+        XCTAssertEqual(release.actions, [])
+        XCTAssertEqual(release.dockSwipeUpdates, [.ended(.horizontal)])
+        XCTAssertFalse(engine.hasActiveInteraction)
+    }
+
+    func testContinuousSwipeFollowsPlainMovesOfSynthesizedButtons() {
+        var engine = ButtonMappingEngine(
+            mappings: [buttonMapping(3, swipe: .init(left: .arg0(.missionControlSpaceRight)))],
+            policy: .configured(by: .init(threshold: 20, continuous: true))
+        )
+        _ = engine.buttonDown(.mouse(3), modifierFlags: [], at: 0)
+        XCTAssertEqual(
+            engine.pointerMoved(deltaX: -30, deltaY: 0, at: ms(10)).dockSwipeUpdates,
+            [.began(.horizontal), .changed(.horizontal, delta: 30)]
+        )
+        let move = engine.pointerMoved(deltaX: -50, deltaY: 0, at: ms(20))
+        XCTAssertTrue(move.consumesEvent)
+        XCTAssertEqual(move.dockSwipeUpdates, [.changed(.horizontal, delta: 50)])
+        XCTAssertEqual(engine.buttonUp(.mouse(3), modifierFlags: [], at: ms(30)).dockSwipeUpdates, [.ended(.horizontal)])
+    }
+
+    func testContinuousVerticalSwipeUsesTrackpadDirections() {
+        let swipe = Mapping.SwipeActions(up: .arg0(.missionControl), down: .arg0(.appExpose))
+        for (deltaY, expected) in [(-30.0, -30.0), (30.0, 30.0)] {
+            var engine = ButtonMappingEngine(
+                mappings: [buttonMapping(3, swipe: swipe)],
+                policy: .configured(by: .init(threshold: 20, continuous: true))
+            )
+            _ = engine.buttonDown(.mouse(3), modifierFlags: [], at: 0)
+            XCTAssertEqual(
+                engine.pointerMoved(for: .mouse(3), deltaX: 0, deltaY: deltaY, at: ms(10)).dockSwipeUpdates,
+                [.began(.vertical), .changed(.vertical, delta: expected)]
+            )
+        }
+    }
+
+    func testContinuousSwipeKeepsOtherActionsDiscrete() {
+        let swipe = Mapping.SwipeActions(right: chordAction)
+        var engine = ButtonMappingEngine(
+            mappings: [buttonMapping(3, swipe: swipe)],
+            policy: .configured(by: .init(threshold: 20, continuous: true))
+        )
+        _ = engine.buttonDown(.mouse(3), modifierFlags: [], at: 0)
+        let output = engine.pointerMoved(for: .mouse(3), deltaX: 30, deltaY: 0, at: ms(10))
+        XCTAssertEqual(output.actions, [chordAction])
+        XCTAssertEqual(output.dockSwipeUpdates, [])
+    }
+
+    func testSpaceSwipeIsDiscreteUnlessContinuous() {
+        var engine = engine([buttonMapping(3, swipe: .init(right: .arg0(.missionControlSpaceLeft)))])
+        _ = engine.buttonDown(.mouse(3), modifierFlags: [], at: 0)
+        let output = engine.pointerMoved(for: .mouse(3), deltaX: 60, deltaY: 0, at: ms(10))
+        XCTAssertEqual(output.actions, [.arg0(.missionControlSpaceLeft)])
+        XCTAssertEqual(output.dockSwipeUpdates, [])
+    }
+
+    func testResetEndsContinuousSwipe() {
+        var engine = ButtonMappingEngine(
+            mappings: [buttonMapping(3, swipe: .init(up: .arg0(.missionControl)))],
+            policy: .configured(by: .init(threshold: 20, continuous: true))
+        )
+        _ = engine.buttonDown(.mouse(3), modifierFlags: [], at: 0)
+        _ = engine.pointerMoved(for: .mouse(3), deltaX: 0, deltaY: -30, at: ms(10))
+        XCTAssertEqual(engine.reset().dockSwipeUpdates, [.ended(.vertical)])
+    }
+
     func testShortPressExecutesOnlyOnRelease() {
         var engine = engine([buttonMapping(4, short: shortAction)])
 

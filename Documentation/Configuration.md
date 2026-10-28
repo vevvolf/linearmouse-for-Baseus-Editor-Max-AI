@@ -545,6 +545,35 @@ Each field inherits independently from earlier matching schemes. In this example
 scheme's overrides and restores inherited values, or the built-in defaults if none are inherited.
 These settings affect button-held swipes, not native multi-finger trackpad gestures.
 
+Set `continuous` to `true` to make swipes mapped to `missionControl.spaceLeft`,
+`missionControl.spaceRight`, `missionControl`, or `appExpose` behave like a trackpad four-finger
+swipe: once the swipe is recognized, the Space or Mission Control follows the pointer until the
+button is released, and moving back cancels it. Other swipe actions still run once.
+`spaceSwipeDistance` (default 900, 200–2000 pixels) sets how far the pointer moves to switch one
+Space, and `missionControlSwipeDistance` (default 250, 100–1000 pixels) how far it moves to fully
+open Mission Control or App Exposé.
+
+```json
+{
+  "buttons": {
+    "swipe": { "threshold": 20, "lockPointer": true, "continuous": true },
+    "mappings": [
+      {
+        "trigger": { "input": { "button": 3 } },
+        "outcomes": {
+          "swipe": {
+            "left": "missionControl.spaceRight",
+            "right": "missionControl.spaceLeft",
+            "up": "missionControl",
+            "down": "appExpose"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
 ### Advanced triggers
 
 The structured `trigger` format supports chords, long presses, swipes, pressed/released action

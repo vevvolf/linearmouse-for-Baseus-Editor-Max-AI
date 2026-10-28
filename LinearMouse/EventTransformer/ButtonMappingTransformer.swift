@@ -77,6 +77,7 @@ final class ButtonMappingTransformer: EventTransformer {
     let mappings: [Mapping]
     let universalBackForward: Scheme.Buttons.UniversalBackForward?
     private let actionExecutor: ButtonActionExecutor
+    private let dockSwipeEmitter: DockSwipeEmitter
     private let scheduleTimer: TimerScheduler
     private let monotonicClock: MonotonicClock
     private let fallbackEventSink: (CGEvent) -> Void
@@ -111,6 +112,7 @@ final class ButtonMappingTransformer: EventTransformer {
             $0.device?.highResolutionWheelNormalizationMultiplier
         },
         gestureTransformer: GestureButtonTransformer? = nil,
+        dockSwipeEmitter: DockSwipeEmitter? = nil,
         warpPointer: @escaping (CGPoint) -> Void = { CGWarpMouseCursorPosition($0) },
         eventSink: @escaping (CGEvent) -> Void = { $0.post(tap: .cgSessionEventTap) },
         syntheticClickScheduler: @escaping AsyncScheduler = ButtonMappingTransformer
@@ -136,6 +138,10 @@ final class ButtonMappingTransformer: EventTransformer {
         self.syntheticClickEventSink = syntheticClickEventSink
         self.swapsPrimaryAndSecondaryButtons = swapsPrimaryAndSecondaryButtons
         self.gestureTransformer = gestureTransformer
+        self.dockSwipeEmitter = dockSwipeEmitter ?? .init(
+            horizontalDistance: policy.spaceSwipeDistance,
+            verticalDistance: policy.missionControlSwipeDistance
+        )
         self.warpPointer = warpPointer
     }
 
@@ -579,6 +585,10 @@ final class ButtonMappingTransformer: EventTransformer {
             actionExecutor.perform(action, targetBundleIdentifier: targetBundleIdentifier)
         }
 
+        for update in output.dockSwipeUpdates {
+            dockSwipeEmitter.handle(update)
+        }
+
         for lifecycleEvent in output.lifecycleEvents {
             switch lifecycleEvent {
             case let .began(pressAction, buttons):
@@ -950,6 +960,7 @@ extension ButtonMappingTransformer: Deactivatable {
         }
         recognitionLanes.removeAll()
         pointerAnchor = nil
+        dockSwipeEmitter.end()
         actionExecutor.deactivate()
         gestureTransformer?.deactivate()
     }

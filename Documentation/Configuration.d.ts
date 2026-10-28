@@ -545,6 +545,31 @@ declare namespace Scheme {
        * @default false
        */
       lockPointer?: boolean;
+
+      /**
+       * @title Continuous swipes
+       * @description Make swipes toward Spaces, Mission Control, and App Exposé follow the pointer like a trackpad four-finger swipe, so they can be reversed before the button is released.
+       * @default false
+       */
+      continuous?: boolean;
+
+      /**
+       * @title Space switch distance
+       * @description Pointer movement in pixels that switches one Space during a continuous swipe. Values outside the range are clamped.
+       * @default 900
+       * @minimum 200
+       * @maximum 2000
+       */
+      spaceSwipeDistance?: number;
+
+      /**
+       * @title Mission Control distance
+       * @description Pointer movement in pixels that fully opens Mission Control or App Exposé during a continuous swipe. Values outside the range are clamped.
+       * @default 250
+       * @minimum 100
+       * @maximum 1000
+       */
+      missionControlSwipeDistance?: number;
     };
 
     type AutoScroll = {

@@ -14,6 +14,20 @@ extension CGEventField {
     static let gestureScrollY = Self(rawValue: 119)!
     static let gesturePhase = Self(rawValue: 132)!
     static let scrollGestureFlagBits = Self(rawValue: 135)!
+
+    // Dock swipe fields, recorded from a trackpad four-finger swipe.
+    static let gestureSwipeMotion = Self(rawValue: 123)!
+    static let gestureSwipeProgress = Self(rawValue: 124)!
+    static let gestureSwipeDelta = Self(rawValue: 125)!
+    static let gestureSwipeVelocityX = Self(rawValue: 129)!
+    static let gestureSwipeVelocityY = Self(rawValue: 130)!
+    static let gestureDockPhase = Self(rawValue: 134)!
+    /// Same field as `scrollGestureFlagBits`; Dock swipes store the progress as `Float` bits.
+    static let gestureSwipeProgressFloatBits = Self(rawValue: 135)!
+    static let gestureDockSwipeFlag = Self(rawValue: 136)!
+    static let gestureDockSwipeKind = Self(rawValue: 138)!
+    static let gestureSwipeMotionAgain = Self(rawValue: 165)!
+    static let gestureSwipeDirection = Self(rawValue: 164)!
 }
 
 /// - SeeAlso:
@@ -38,6 +52,7 @@ enum IOHIDEventType: UInt32 {
     case zoom = 8
     case digitizer = 11
     case navigationSwipe = 16
+    case dockSwipe = 23
     case zoomToggle = 22
     case force = 32
     case gestureStarted = 61

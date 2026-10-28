@@ -21,11 +21,17 @@ struct ButtonMappingPolicy: Equatable {
     var swipeThreshold: Double
     var swipeDeadZone: Double
     var lockPointer = false
+    var continuousSwipes = false
+    var spaceSwipeDistance = Scheme.Buttons.Swipe.defaultSpaceSwipeDistance
+    var missionControlSwipeDistance = Scheme.Buttons.Swipe.defaultMissionControlSwipeDistance
 
     static func configured(by swipe: Scheme.Buttons.Swipe) -> Self {
         var policy = Self.default
         policy.swipeThreshold = swipe.effectiveThreshold
         policy.lockPointer = swipe.lockPointer ?? false
+        policy.continuousSwipes = swipe.continuous ?? false
+        policy.spaceSwipeDistance = swipe.effectiveSpaceSwipeDistance
+        policy.missionControlSwipeDistance = swipe.effectiveMissionControlSwipeDistance
         return policy
     }
 
@@ -46,6 +52,29 @@ struct ButtonMappingEngine {
 
     enum SwipeDirection: Equatable {
         case up, down, left, right
+    }
+
+    enum DockSwipeAxis: Equatable {
+        case horizontal, vertical
+    }
+
+    /// Progress of a continuous swipe. Deltas are in pointer pixels, signed so that a positive
+    /// horizontal delta moves toward the Space on the right and a negative vertical delta moves
+    /// toward Mission Control, like a trackpad four-finger swipe.
+    enum DockSwipeUpdate: Equatable {
+        case began(DockSwipeAxis)
+        case changed(DockSwipeAxis, delta: Double)
+        case ended(DockSwipeAxis)
+    }
+
+    private struct ContinuousSwipe {
+        var axis: DockSwipeAxis
+        /// Converts pointer movement on `axis` into a `DockSwipeUpdate` delta.
+        var sign: Double
+
+        func delta(deltaX: Double, deltaY: Double) -> Double {
+            (axis == .horizontal ? deltaX : deltaY) * sign
+        }
     }
 
     enum LifecycleEvent: Equatable {
@@ -80,6 +109,7 @@ struct ButtonMappingEngine {
         /// has already been replayed and must follow the same delivery path.
         var forwardsCapturedEvent = false
         var pointerHandling: PointerHandling?
+        var dockSwipeUpdates = [DockSwipeUpdate]()
         /// Internal precedence used when concurrent recognizers can accept the
         /// same physical event. Higher values follow the normal mapping
         /// specificity and configuration-order rules.
@@ -107,6 +137,7 @@ struct ButtonMappingEngine {
             discardsBufferedEvents = discardsBufferedEvents || output.discardsBufferedEvents
             forwardsCapturedEvent = forwardsCapturedEvent || output.forwardsCapturedEvent
             pointerHandling = output.pointerHandling ?? pointerHandling
+            dockSwipeUpdates += output.dockSwipeUpdates
             if let chord = output.recognitionChord {
                 recognitionChord = chord
                 recognitionComplete = output.recognitionComplete
@@ -174,6 +205,7 @@ struct ButtonMappingEngine {
         var pressAction: PressAction?
         var blocksImpulses: Bool
         var locksPointer: Bool
+        var continuousSwipe: ContinuousSwipe?
     }
 
     private let mappings: [Mapping]
@@ -591,13 +623,24 @@ struct ButtonMappingEngine {
                     output.pointerHandling = .remap(to: target)
                 }
             case .perform, nil:
-                break
+                if let swipe = active.continuousSwipe {
+                    output.dockSwipeUpdates.append(
+                        .changed(swipe.axis, delta: swipe.delta(deltaX: deltaX, deltaY: deltaY))
+                    )
+                }
             }
             return output
         }
 
         if let button, retainedHeldButtons.contains(button), session?.involvedButtons.contains(button) != true {
             output.consumesEvent = true
+            return output
+        }
+
+        // Buttons synthesized from HID reports produce plain moves rather than drags.
+        if button == nil, let swipe = activeCaptures.lazy.compactMap(\.continuousSwipe).first {
+            output.consumesEvent = true
+            output.dockSwipeUpdates.append(.changed(swipe.axis, delta: swipe.delta(deltaX: deltaX, deltaY: deltaY)))
             return output
         }
 
@@ -625,10 +668,19 @@ struct ButtonMappingEngine {
             return output
         }
 
-        output.actions.append(action)
         output.discardsBufferedEvents = true
         session.commitment = .statefulAction
-        commit(session)
+        if let swipe = continuousSwipe(in: session, direction: direction) {
+            // Start from the whole recognized movement so the swipe does not jump.
+            output.dockSwipeUpdates = [
+                .began(swipe.axis),
+                .changed(swipe.axis, delta: swipe.delta(deltaX: session.deltaX, deltaY: session.deltaY))
+            ]
+            commit(session, continuousSwipe: swipe)
+        } else {
+            output.actions.append(action)
+            commit(session)
+        }
         return output
     }
 
@@ -721,13 +773,20 @@ struct ButtonMappingEngine {
             }
             return .ended(pressAction, buttons: active.buttons)
         }
+        let dockSwipeUpdates = activeCaptures.compactMap { active in
+            active.continuousSwipe.map { DockSwipeUpdate.ended($0.axis) }
+        }
         session = nil
         activeCaptures.removeAll()
         retainedHeldButtons.removeAll()
         passthroughButtons.removeAll()
         pressedButtons.removeAll()
         pressedAt.removeAll()
-        return .init(lifecycleEvents: lifecycleEvents, replaysBufferedEvents: shouldReplay)
+        return .init(
+            lifecycleEvents: lifecycleEvents,
+            replaysBufferedEvents: shouldReplay,
+            dockSwipeUpdates: dockSwipeUpdates
+        )
     }
 
     /// Cancels an interaction after a higher-priority recognizer claims the
@@ -739,6 +798,7 @@ struct ButtonMappingEngine {
         var canceled = retainedHeldButtons.remove(button) != nil
         var canceledPendingSession = false
         var lifecycleEvents = [LifecycleEvent]()
+        var dockSwipeUpdates = [DockSwipeUpdate]()
 
         if let session, session.involvedButtons.contains(button) {
             if replayingBufferedEvents {
@@ -761,6 +821,10 @@ struct ButtonMappingEngine {
                 lifecycleEvents.append(.ended(pressAction, buttons: active.buttons))
                 active.pressAction = nil
             }
+            if let swipe = active.continuousSwipe {
+                dockSwipeUpdates.append(.ended(swipe.axis))
+                active.continuousSwipe = nil
+            }
 
             active.remainingButtons.remove(button)
             if retainHeldButtons(from: active) {
@@ -782,7 +846,8 @@ struct ButtonMappingEngine {
             consumesEvent: true,
             lifecycleEvents: lifecycleEvents,
             replaysBufferedEvents: canceledPendingSession && replayingBufferedEvents,
-            discardsBufferedEvents: canceledPendingSession && !replayingBufferedEvents
+            discardsBufferedEvents: canceledPendingSession && !replayingBufferedEvents,
+            dockSwipeUpdates: dockSwipeUpdates
         )
     }
 
@@ -989,6 +1054,29 @@ struct ButtonMappingEngine {
         return deltaY > 0 ? .down : .up
     }
 
+    /// A swipe toward a Spaces, Mission Control or App Exposé action follows the pointer when
+    /// continuous swipes are enabled. The Dock then picks the action from the final direction.
+    private func continuousSwipe(in session: Session, direction: SwipeDirection) -> ContinuousSwipe? {
+        guard policy.continuousSwipes, let action = swipeAction(in: session, direction: direction) else {
+            return nil
+        }
+
+        switch (direction, action) {
+        case (.left, .arg0(.missionControlSpaceLeft)), (.left, .arg0(.missionControlSpaceRight)),
+             (.right, .arg0(.missionControlSpaceLeft)), (.right, .arg0(.missionControlSpaceRight)):
+            let towardRight: Double = direction == .right ? 1 : -1
+            let movesRight: Double = action == .arg0(.missionControlSpaceRight) ? 1 : -1
+            return .init(axis: .horizontal, sign: towardRight * movesRight)
+        case (.up, .arg0(.missionControl)), (.up, .arg0(.appExpose)),
+             (.down, .arg0(.missionControl)), (.down, .arg0(.appExpose)):
+            let towardDown: Double = direction == .down ? 1 : -1
+            let opensAppExpose: Double = action == .arg0(.appExpose) ? 1 : -1
+            return .init(axis: .vertical, sign: towardDown * opensAppExpose)
+        default:
+            return nil
+        }
+    }
+
     private func swipeAction(in session: Session, direction: SwipeDirection) -> Action? {
         guard let swipe = session.resolution?.candidate.mapping.outcomes?.swipe else {
             return nil
@@ -1073,6 +1161,10 @@ struct ButtonMappingEngine {
             output.lifecycleEvents.append(.ended(pressAction, buttons: active.buttons))
             active.pressAction = nil
         }
+        if active.buttons.contains(button), let swipe = active.continuousSwipe {
+            output.dockSwipeUpdates.append(.ended(swipe.axis))
+            active.continuousSwipe = nil
+        }
         active.remainingButtons.remove(button)
         if retainHeldButtons(from: active) {
             activeCaptures.remove(at: index)
@@ -1083,7 +1175,9 @@ struct ButtonMappingEngine {
     }
 
     private mutating func retainHeldButtons(from active: ActiveCapture) -> Bool {
-        guard active.pressAction == nil, active.remainingButtons.isSubset(of: active.heldButtons) else {
+        guard active.pressAction == nil,
+              active.continuousSwipe == nil,
+              active.remainingButtons.isSubset(of: active.heldButtons) else {
             return false
         }
         retainedHeldButtons.formUnion(active.remainingButtons)
@@ -1095,7 +1189,8 @@ struct ButtonMappingEngine {
         pressAction: PressAction? = nil,
         blocksImpulses: Bool = true,
         additionalHeldButtons: Set<Button> = [],
-        locksPointer: Bool? = nil
+        locksPointer: Bool? = nil,
+        continuousSwipe: ContinuousSwipe? = nil
     ) {
         let trigger = session.resolution?.candidate.trigger
         let buttons = (trigger?.statefulButtons ?? session.capturedButtons).union(additionalHeldButtons)
@@ -1109,7 +1204,8 @@ struct ButtonMappingEngine {
             heldButtons: heldButtons,
             pressAction: pressAction,
             blocksImpulses: blocksImpulses,
-            locksPointer: locksPointer ?? self.locksPointer(in: session)
+            locksPointer: locksPointer ?? self.locksPointer(in: session),
+            continuousSwipe: continuousSwipe
         )
         retainedHeldButtons.subtract(active.remainingButtons)
         if !retainHeldButtons(from: active) {

@@ -1285,11 +1285,33 @@
     "Scheme.Buttons.Swipe": {
       "additionalProperties": false,
       "properties": {
+        "continuous": {
+          "default": false,
+          "description": "Make swipes toward Spaces, Mission Control, and App Exposé follow the pointer like a trackpad four-finger swipe, so they can be reversed before the button is released.",
+          "title": "Continuous swipes",
+          "type": "boolean"
+        },
         "lockPointer": {
           "default": false,
           "description": "Keep the pointer at its starting position while recognizing a button swipe and until the captured interaction releases it.",
           "title": "Lock pointer during swipes",
           "type": "boolean"
+        },
+        "missionControlSwipeDistance": {
+          "default": 250,
+          "description": "Pointer movement in pixels that fully opens Mission Control or App Exposé during a continuous swipe. Values outside the range are clamped.",
+          "maximum": 1000,
+          "minimum": 100,
+          "title": "Mission Control distance",
+          "type": "number"
+        },
+        "spaceSwipeDistance": {
+          "default": 900,
+          "description": "Pointer movement in pixels that switches one Space during a continuous swipe. Values outside the range are clamped.",
+          "maximum": 2000,
+          "minimum": 200,
+          "title": "Space switch distance",
+          "type": "number"
         },
         "threshold": {
           "default": 50,
