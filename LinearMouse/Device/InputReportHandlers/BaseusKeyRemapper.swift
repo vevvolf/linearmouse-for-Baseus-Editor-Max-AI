@@ -29,8 +29,8 @@ final class BaseusKeyRemapper {
     /// HID usage page 7 (keyboard) shifted into the high 32 bits, as UserKeyMapping expects.
     private static let keyboardUsagePageBase: UInt64 = 0x7_0000_0000
     private static let f11: UInt64 = keyboardUsagePageBase | 0x44
-    /// F20: present in the HID tables, unbound on macOS by default.
-    private static let unusedKey: UInt64 = keyboardUsagePageBase | 0x6F
+    /// No key. Remapping to an unbound key such as F20 still reaches the focused app, which beeps.
+    private static let noKey: UInt64 = keyboardUsagePageBase
 
     private static let userKeyMappingKey = "UserKeyMapping" as CFString
 
@@ -66,7 +66,7 @@ final class BaseusKeyRemapper {
 
         let mapping: [[String: UInt64]] = [[
             "HIDKeyboardModifierMappingSrc": Self.f11,
-            "HIDKeyboardModifierMappingDst": Self.unusedKey
+            "HIDKeyboardModifierMappingDst": Self.noKey
         ]]
 
         var liveServiceIDs: Set<UInt64> = []
@@ -81,7 +81,7 @@ final class BaseusKeyRemapper {
             if Self.isTrue(IOHIDServiceClientSetProperty(service, Self.userKeyMappingKey, mapping as CFArray)) {
                 remappedServiceIDs.insert(serviceID)
                 os_log(
-                    "Remapped F11 to F20 on Baseus keyboard service %{public}llu",
+                    "Disabled F11 on Baseus keyboard service %{public}llu",
                     log: Self.log,
                     type: .info,
                     serviceID

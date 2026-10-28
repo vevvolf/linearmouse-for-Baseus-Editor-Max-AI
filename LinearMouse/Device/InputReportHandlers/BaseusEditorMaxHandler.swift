@@ -16,7 +16,7 @@ import Foundation
 ///
 /// - **M (side) button** holds F11 (usage 0x44) in report 1 for as long as the button is
 ///   held, so press, hold and drag all work. On macOS F11 shows the desktop, so the handler
-///   also remaps F11 *from this device only* to an unused key (see `BaseusKeyRemapper`).
+///   also disables F11 *from this device only* (see `BaseusKeyRemapper`).
 /// - **AI button** sends nothing usable on macOS (its macro targets Baseus' Windows-only AI
 ///   assistant): only the "macro finished" cleanup, an empty report 1 followed by an empty
 ///   report 2, after release. It can therefore only act as a click, never a hold. The M
