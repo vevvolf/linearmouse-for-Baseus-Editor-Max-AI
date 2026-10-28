@@ -92,7 +92,8 @@ enum InputReportHandlerRegistry {
     static let handlers: [InputReportHandler] = [
         GenericSideButtonHandler(),
         KensingtonSlimbladeHandler(),
-        ElecomTrackballHandler()
+        ElecomTrackballHandler(),
+        BaseusEditorMaxHandler()
     ]
 
     static func handlers(for vendorID: Int, productID: Int) -> [InputReportHandler] {
