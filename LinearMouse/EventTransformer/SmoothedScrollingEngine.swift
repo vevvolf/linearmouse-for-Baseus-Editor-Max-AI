@@ -222,8 +222,41 @@ final class SmoothedScrollingEngine {
     private var pendingMomentumBegin = false
     private var reengagedFromMomentum = false
 
-    private let inputGrace: TimeInterval = 1.0 / 25.0
+    /// How long a touch stays alive after the last input. Wheels that report sparsely, such as
+    /// free-spinning wheels sending one step every ~45 ms, stretch it to their own pace so a
+    /// steady spin stays one gesture instead of restarting on every step.
+    private static let minimumInputGrace: TimeInterval = 1.0 / 25.0
+    private static let maximumInputGrace: TimeInterval = 0.15
+    /// A free-spinning wheel bounces back one step as it stops, about 0.4 s after the last step,
+    /// which would cancel the momentum. On such wheels a single reverse step soon after scrolling
+    /// the other way is dropped unless the next step confirms it. Detented wheels never bounce,
+    /// so there a single reverse step stays a deliberate stop.
+    /// One line step in points: a sub-line reverse step is reported as a whole line.
+    private static let jitterMagnitude = 36.0
+    private static let jitterWindow: TimeInterval = 0.6
+    private var lastWheelDirection = (x: 0.0, y: 0.0)
+    private var lastWheelDirectionTimestamp: TimeInterval?
+    private var droppedReversal: (x: Double, y: Double, timestamp: TimeInterval)?
+    private static let wheelIntervalSmoothing = 0.3
+    /// Gaps longer than this are pauses, not the wheel's reporting pace.
+    private static let wheelIntervalLimit: TimeInterval = 0.25
+    private var wheelInterval: TimeInterval?
+    private var lastWheelInputTimestamp: TimeInterval?
+
+    private var inputGrace: TimeInterval {
+        guard let wheelInterval else {
+            return Self.minimumInputGrace
+        }
+        return (wheelInterval * 1.25).clamped(to: Self.minimumInputGrace ... Self.maximumInputGrace)
+    }
+
     private let stopThreshold = 0.5
+    /// On free-spinning wheels, larger inputs (in points; a line is 36) are spread over several
+    /// frames, so a side wheel sending 10 lines per notch glides instead of jumping.
+    private static let maximumInputPerTick = 144.0
+
+    /// The input comes from a free-spinning wheel, see `jitterWindow` and `maximumInputPerTick`.
+    var isFreeSpinningWheel = false
     private let axisActivityThreshold = 0.01
 
     init(smoothed: Scheme.Scrolling.Bidirectional<Scheme.Scrolling.Smoothed>) {
@@ -303,6 +336,11 @@ final class SmoothedScrollingEngine {
         var deltaX = rawDeltaX
         var deltaY = rawDeltaY
 
+        if inputKind == .wheel, isFreeSpinningWheel,
+           isReverseJitter(deltaX: deltaX, deltaY: deltaY, timestamp: timestamp) {
+            return
+        }
+
         if sessionState == .momentum {
             cancelOpposingMomentum(deltaX: &deltaX, deltaY: &deltaY)
         }
@@ -310,6 +348,7 @@ final class SmoothedScrollingEngine {
         pendingInputX += deltaX
         pendingInputY += deltaY
         updateWheelInputVelocityEstimator(deltaX: deltaX, deltaY: deltaY, timestamp: timestamp, inputKind: inputKind)
+        updateWheelInterval(deltaX: rawDeltaX, deltaY: rawDeltaY, timestamp: timestamp, inputKind: inputKind)
         lastInputTimestamp = timestamp
 
         if sessionState == .idle, deltaX != 0 || deltaY != 0 {
@@ -327,6 +366,61 @@ final class SmoothedScrollingEngine {
         if lastTickTimestamp == nil {
             lastTickTimestamp = timestamp
         }
+    }
+
+    private func isReverseJitter(deltaX: Double, deltaY: Double, timestamp: TimeInterval) -> Bool {
+        let direction = (x: Self.direction(of: deltaX), y: Self.direction(of: deltaY))
+        guard direction.x != 0 || direction.y != 0 else {
+            return false
+        }
+
+        let reverses = (direction.x != 0 && direction.x == -lastWheelDirection.x)
+            || (direction.y != 0 && direction.y == -lastWheelDirection.y)
+        let isRecent = lastWheelDirectionTimestamp.map { timestamp - $0 <= Self.jitterWindow } ?? false
+        let isTiny = max(abs(deltaX), abs(deltaY)) <= Self.jitterMagnitude
+        let confirmsDroppedReversal = droppedReversal.map {
+            $0.x == direction.x && $0.y == direction.y && timestamp - $0.timestamp <= Self.jitterWindow
+        } ?? false
+
+        guard reverses, isRecent, isTiny, !confirmsDroppedReversal else {
+            droppedReversal = nil
+            lastWheelDirection = direction
+            lastWheelDirectionTimestamp = timestamp
+            return false
+        }
+
+        // Remember the original direction, so the next step that way continues the scroll.
+        droppedReversal = (direction.x, direction.y, timestamp)
+        return true
+    }
+
+    private static func direction(of delta: Double) -> Double {
+        delta > 0 ? 1 : delta < 0 ? -1 : 0
+    }
+
+    private func updateWheelInterval(deltaX: Double, deltaY: Double, timestamp: TimeInterval, inputKind: InputKind) {
+        guard inputKind == .wheel else {
+            wheelInterval = nil
+            lastWheelInputTimestamp = nil
+            return
+        }
+        guard deltaX != 0 || deltaY != 0 else {
+            return
+        }
+        defer {
+            lastWheelInputTimestamp = timestamp
+        }
+        guard let lastWheelInputTimestamp else {
+            return
+        }
+
+        let interval = timestamp - lastWheelInputTimestamp
+        guard interval > 0, interval <= Self.wheelIntervalLimit else {
+            return
+        }
+        wheelInterval = wheelInterval.map {
+            $0 + (interval - $0) * Self.wheelIntervalSmoothing
+        } ?? interval
     }
 
     private func cancelOpposingMomentum(deltaX: inout Double, deltaY: inout Double) {
@@ -426,6 +520,7 @@ final class SmoothedScrollingEngine {
         )
         reengagedFromMomentum = false
 
+        let hasRemainingInput = pendingInputX != 0 || pendingInputY != 0
         let hasMovement = abs(emissionX) >= 0.01 || abs(emissionY) >= 0.01
         let shouldContinueMomentum = abs(velocityX) > stopThreshold || abs(velocityY) > stopThreshold
 
@@ -434,7 +529,7 @@ final class SmoothedScrollingEngine {
             return nil
 
         case .touching:
-            if hasFreshInput {
+            if hasFreshInput || hasRemainingInput {
                 guard hasMovement else {
                     return nil
                 }
@@ -510,9 +605,11 @@ final class SmoothedScrollingEngine {
 
         case let .smoothed(tuning):
             if pendingInput != 0 {
+                let cap = isFreeSpinningWheel ? Self.maximumInputPerTick : .infinity
+                let input = effectiveInput.clamped(to: -cap ... cap)
                 desiredVelocity = reengagedFromMomentum
-                    ? tuning.reengagedDesiredVelocity(for: effectiveInput, currentVelocity: velocity)
-                    : tuning.desiredVelocity(for: effectiveInput)
+                    ? tuning.reengagedDesiredVelocity(for: input, currentVelocity: velocity)
+                    : tuning.desiredVelocity(for: input)
                 if reengagedFromMomentum {
                     let kick = tuning.reengagementKickFactor(
                         desiredVelocity: desiredVelocity,
@@ -520,7 +617,7 @@ final class SmoothedScrollingEngine {
                     )
                     velocity += (desiredVelocity - velocity) * kick
                 }
-                pendingInput = 0
+                pendingInput -= pendingInput.clamped(to: -cap ... cap)
             }
 
             if hasFreshInput || hasPendingInput {

@@ -50,6 +50,136 @@ final class SmoothedScrollingEngineTests: XCTestCase {
         XCTAssertEqual(emissions.last?.phase, .momentumEnded)
     }
 
+    func testSparseFreeSpinningWheelStaysOneGesture() {
+        // Captured: a free-spinning wheel reports one step about every 45 ms.
+        let engine = SmoothedScrollingEngine(
+            smoothed: .init(vertical: .init(enabled: true, preset: .linear))
+        )
+
+        var phases: [SmoothedScrollingEngine.Phase] = []
+        var time = 0.0
+        for step in 0 ..< 20 {
+            let input = Double(step) * 0.045
+            while time < input {
+                if let emission = engine.advance(to: time) {
+                    phases.append(emission.phase)
+                }
+                time += 1.0 / 120
+            }
+            engine.feed(deltaX: 0, deltaY: 36, timestamp: input)
+        }
+        while time < 3 {
+            if let emission = engine.advance(to: time) {
+                phases.append(emission.phase)
+            }
+            time += 1.0 / 120
+        }
+
+        // Only the second step, before the wheel's pace is known, may restart the gesture.
+        XCTAssertLessThanOrEqual(phases.filter { $0 == .touchBegan }.count, 2)
+        XCTAssertLessThanOrEqual(phases.filter { $0 == .touchEnded }.count, 2)
+        XCTAssertEqual(phases.last, .momentumEnded)
+    }
+
+    func testSlowWheelStepsStillEndTheTouch() {
+        let engine = SmoothedScrollingEngine(
+            smoothed: .init(vertical: .init(enabled: true, preset: .linear))
+        )
+
+        var phases: [SmoothedScrollingEngine.Phase] = []
+        var time = 0.0
+        for input in [0.0, 0.045, 0.09, 1.0] {
+            while time < input {
+                if let emission = engine.advance(to: time) {
+                    phases.append(emission.phase)
+                }
+                time += 1.0 / 120
+            }
+            engine.feed(deltaX: 0, deltaY: 36, timestamp: input)
+        }
+
+        XCTAssertLessThanOrEqual(phases.filter { $0 == .touchBegan }.count, 2)
+        XCTAssertTrue(phases.contains(.touchEnded))
+    }
+
+    func testTinyReverseStepDoesNotScrollBack() {
+        // Captured: a free-spinning wheel reports -0.1 between forward steps.
+        let engine = SmoothedScrollingEngine(
+            smoothed: .init(vertical: .init(enabled: true, preset: .linear))
+        )
+        engine.isFreeSpinningWheel = true
+
+        var deltas: [Double] = []
+        var time = 0.0
+        for (input, delta) in [(0.0, 36.0), (0.1, 36.0), (0.5, -36.0)] {
+            while time < input {
+                if let emission = engine.advance(to: time) {
+                    deltas.append(emission.deltaY)
+                }
+                time += 1.0 / 120
+            }
+            engine.feed(deltaX: 0, deltaY: delta, timestamp: input)
+        }
+        while time < 1 {
+            if let emission = engine.advance(to: time) {
+                deltas.append(emission.deltaY)
+            }
+            time += 1.0 / 120
+        }
+
+        XCTAssertFalse(deltas.contains { $0 < 0 })
+    }
+
+    func testConfirmedReversalScrollsBack() {
+        let engine = SmoothedScrollingEngine(
+            smoothed: .init(vertical: .init(enabled: true, preset: .linear))
+        )
+        engine.isFreeSpinningWheel = true
+
+        var deltas: [Double] = []
+        var time = 0.0
+        for (input, delta) in [(0.0, 36.0), (0.1, -36.0), (0.15, -36.0), (0.2, -36.0)] {
+            while time < input {
+                if let emission = engine.advance(to: time) {
+                    deltas.append(emission.deltaY)
+                }
+                time += 1.0 / 120
+            }
+            engine.feed(deltaX: 0, deltaY: delta, timestamp: input)
+        }
+        while time < 1 {
+            if let emission = engine.advance(to: time) {
+                deltas.append(emission.deltaY)
+            }
+            time += 1.0 / 120
+        }
+
+        XCTAssertTrue(deltas.contains { $0 < 0 })
+    }
+
+    func testLargeWheelStepGlidesInsteadOfJumping() {
+        // A fast spin of a free-spinning wheel reports many lines in one event.
+        func run(_ input: Double) -> (peak: Double, total: Double) {
+            let engine = SmoothedScrollingEngine(
+                smoothed: .init(vertical: .init(enabled: true, preset: .linear))
+            )
+            engine.isFreeSpinningWheel = true
+            engine.feed(deltaX: 0, deltaY: input, timestamp: 0)
+            var deltas: [Double] = []
+            for frame in 1 ... 240 {
+                if let emission = engine.advance(to: Double(frame) / 120) {
+                    deltas.append(abs(emission.deltaY))
+                }
+            }
+            return (deltas.max() ?? 0, deltas.reduce(0, +))
+        }
+
+        let small = run(3 * 36)
+        let large = run(13 * 36)
+        XCTAssertLessThan(large.peak, small.peak * 1.5)
+        XCTAssertGreaterThan(large.total, small.total)
+    }
+
     func testSmoothedScrollingPreservesPassthroughAxis() {
         let engine = SmoothedScrollingEngine(
             smoothed: .init(

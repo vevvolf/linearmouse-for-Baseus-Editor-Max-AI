@@ -864,4 +864,16 @@ private extension [CGEvent] {
     var lastScrollWheelEvent: CGEvent? {
         last { $0.type == .scrollWheel }
     }
+
+    func testFreeSpinningWheelStepsKeepSlowAndFastApart() {
+        // Captured: steps of a free-spinning wheel, accelerated by the system.
+        let lines = [0.1, 0.45, 1.5, 2, 9, 25].map(SmoothedScrollingTransformer.freeSpinningWheelLines)
+
+        XCTAssertEqual(lines[0], 0.45)
+        XCTAssertEqual(lines[2], 1.5)
+        XCTAssertEqual(lines[3], 2)
+        XCTAssertEqual(lines[4], 2 * 4.5.squareRoot(), accuracy: 1e-9)
+        XCTAssertLessThan(lines[5], 8)
+        XCTAssertEqual(lines, lines.sorted())
+    }
 }

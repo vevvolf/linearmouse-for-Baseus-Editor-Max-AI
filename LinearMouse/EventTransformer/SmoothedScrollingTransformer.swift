@@ -84,6 +84,7 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
             if handlesX != handlesY {
                 engine.resetOtherAxis(ifExclusiveIncomingAxis: handlesX ? .horizontal : .vertical)
             }
+            engine.isFreeSpinningWheel = context.device.map(Self.hasFreeSpinningWheel) ?? false
             engine.feed(
                 deltaX: handlesX ? deltaX : 0,
                 deltaY: handlesY ? deltaY : 0,
@@ -115,6 +116,48 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
         delivery.resetPointDeltaRemainders()
         lastFlags = []
         syntheticMomentumScrollActive = false
+    }
+
+    /// Smallest step of a free-spinning wheel, in lines; scrolls about 18 points.
+    private static let minimumFreeSpinningWheelStep = 0.45
+
+    /// Above this many lines per step, the system's acceleration is softened.
+    private static let freeSpinningWheelSoftAccelerationStart = 2.0
+
+    /// Lines to scroll for a free-spinning wheel step the system accelerated to `lines`.
+    ///
+    /// Its slowest steps (0.1 line) would barely move, so they count as a minimum step. The side
+    /// wheel jumps from 0.1 to 9+ lines on a slightly faster turn, so steps above two lines grow
+    /// with the square root, which leaves a wider range between slow and fast turns.
+    static func freeSpinningWheelLines(_ lines: Double) -> Double {
+        let start = freeSpinningWheelSoftAccelerationStart
+        guard lines > start else {
+            return max(lines, minimumFreeSpinningWheelStep)
+        }
+        return start * (lines / start).squareRoot()
+    }
+
+    /// A free-spinning wheel reports a whole line for every step however slowly it turns, so its
+    /// steps use the system's accelerated fractional distance instead.
+    private func freeSpinningWheelDelta(
+        _ fixedPointDelta: Double,
+        view: ScrollWheelEventView,
+        in context: EventTransformerContext
+    ) -> Double? {
+        guard !view.continuous, fixedPointDelta != 0,
+              context.device.map(Self.hasFreeSpinningWheel) == true else {
+            return nil
+        }
+        let lines = Self.freeSpinningWheelLines(abs(fixedPointDelta))
+        let sign: Double = fixedPointDelta > 0 ? 1 : -1
+        return sign * lines * SmoothedScrollEventDelivery.inputLineStepInPoints
+    }
+
+    private static func hasFreeSpinningWheel(_ device: Device) -> Bool {
+        guard let vendorID = device.vendorID, let productID = device.productID else {
+            return false
+        }
+        return BaseusEditorMaxHandler.supportedProducts.contains(.init(vendorID: vendorID, productID: productID))
     }
 
     private func startTimerIfNeeded() {
@@ -193,6 +236,10 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
     }
 
     private func deltaXInPixels(from view: ScrollWheelEventView, in context: EventTransformerContext) -> Double {
+        if let delta = freeSpinningWheelDelta(view.deltaXFixedPt, view: view, in: context) {
+            return delta
+        }
+
         guard let multiplier = highResolutionWheelMultiplier(context),
               multiplier > 1,
               !view.continuous else {
@@ -210,6 +257,10 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
     }
 
     private func deltaYInPixels(from view: ScrollWheelEventView, in context: EventTransformerContext) -> Double {
+        if let delta = freeSpinningWheelDelta(view.deltaYFixedPt, view: view, in: context) {
+            return delta
+        }
+
         guard let multiplier = highResolutionWheelMultiplier(context),
               multiplier > 1,
               !view.continuous else {
