@@ -35,9 +35,11 @@ final class BaseusKeyRemapper {
     private static let userKeyMappingKey = "UserKeyMapping" as CFString
 
     private let lock = NSLock()
-    /// Kept for the lifetime of the app: service clients obtained from an event system client
-    /// become invalid once that client is released, and setting a property on them then crashes.
-    private let eventSystemClient = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
+    /// Service clients obtained from an event system client become invalid once that client is
+    /// released, and setting a property on them then crashes, so the client of the latest scan is
+    /// kept until the next one. A fresh client per scan is needed: a long-lived one keeps listing
+    /// the services it saw when created, so it misses the mouse after it reconnects.
+    private var eventSystemClient: IOHIDEventSystemClient?
     private var remappedServiceIDs: Set<UInt64> = []
     private var lastAttempt: TimeInterval = -.infinity
     private var terminationObserver: NSObjectProtocol?
@@ -112,7 +114,9 @@ final class BaseusKeyRemapper {
     }
 
     private func matchingKeyboardServices() -> [IOHIDServiceClient] {
-        guard let services = IOHIDEventSystemClientCopyServices(eventSystemClient) as? [IOHIDServiceClient] else {
+        let client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
+        eventSystemClient = client
+        guard let services = IOHIDEventSystemClientCopyServices(client) as? [IOHIDServiceClient] else {
             return []
         }
         return services.filter { service in
