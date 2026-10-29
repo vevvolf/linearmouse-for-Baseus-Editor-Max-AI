@@ -208,6 +208,14 @@ final class BaseusEditorMaxHandlerTests: XCTestCase {
         XCTAssertEqual(context.lastButtonStates, 0)
     }
 
+    func testMouseMovementAppliesFunctionKeyMapping() {
+        // After a reconnect, the mapping must be in place before M is first pressed.
+        let harness = Harness()
+        harness.feed([0x03, 0x00, 0x05, 0x00, 0, 0], at: 1)
+
+        XCTAssertEqual(harness.suppressCalls, 1)
+    }
+
     func testCallsNextForEveryReport() {
         let handler = BaseusEditorMaxHandler(emit: { _, _ in }, now: { 0 }, suppressFunctionKey: {})
         for report in [Self.f11Down, Self.emptyConsumer, [0x03, 0, 0, 0, 0, 0], []] {

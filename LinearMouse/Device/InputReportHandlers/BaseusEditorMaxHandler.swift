@@ -119,6 +119,10 @@ struct BaseusEditorMaxHandler: InputReportHandler {
             return
         }
 
+        // The keyboard service is new after every reconnect, so (re)apply the F11 mapping on any
+        // report, such as the first movement, before M is pressed. It is cheap once applied.
+        suppressFunctionKey()
+
         switch reportID {
         case Self.keyboardReportID:
             handleKeyboardReport(context)
@@ -136,10 +140,6 @@ struct BaseusEditorMaxHandler: InputReportHandler {
         guard context.report.count >= 4 else {
             return
         }
-
-        // The keyboard service may enumerate after the pointer service, so (re)apply the
-        // remap lazily. Applying is idempotent and cheap once done.
-        suppressFunctionKey()
 
         let keys = context.report.dropFirst(3)
         let mDown = keys.contains(Self.mButtonKeyUsage)
