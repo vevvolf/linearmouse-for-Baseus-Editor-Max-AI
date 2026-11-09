@@ -166,6 +166,10 @@ final class ButtonMappingTransformer: EventTransformer {
         // applying a lock that an expired interaction no longer owns.
         let now = monotonicClock()
         advanceRecognitionLanes(to: now)
+        // Dragging with another button, such as carrying a window with the left button while M
+        // is held for a swipe: the movement drives the swipe like a plain move, and the drag
+        // still reaches the system so the dragged item stays held and travels with the Space.
+        let isForeignDrag = isDragOfUnownedButton(event)
         if let pointerAnchor {
             // Anchor only the absolute position. Keep movement deltas unchanged so
             // locked and unlocked swipes measure the same displacement.
@@ -264,7 +268,7 @@ final class ButtonMappingTransformer: EventTransformer {
             alwaysForwardsEvent = false
 
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            let button = mappingButton(of: event)
+            let button = isForeignDrag ? nil : mappingButton(of: event)
             recognition = recognize { engine in
                 engine.pointerMoved(
                     for: button,
@@ -273,8 +277,8 @@ final class ButtonMappingTransformer: EventTransformer {
                     at: now
                 )
             }
-            canBuffer = true
-            alwaysForwardsEvent = false
+            canBuffer = !isForeignDrag
+            alwaysForwardsEvent = isForeignDrag
 
         case .mouseMoved:
             recognition = recognize { engine in
@@ -395,10 +399,10 @@ final class ButtonMappingTransformer: EventTransformer {
         if forwardedEvent != nil {
             return nil
         }
-        if isPointerMotion, pointerAnchor != nil {
+        if isPointerMotion, pointerAnchor != nil, !isForeignDrag {
             return nil
         }
-        return alwaysForwardsEvent || !output.consumesEvent ? event : nil
+        return alwaysForwardsEvent || isForeignDrag || !output.consumesEvent ? event : nil
     }
 
     private func recognize(
@@ -544,6 +548,15 @@ final class ButtonMappingTransformer: EventTransformer {
         return TimerToken {
             timer.invalidate()
         }
+    }
+
+    private func isDragOfUnownedButton(_ event: CGEvent) -> Bool {
+        guard [CGEventType.leftMouseDragged, .rightMouseDragged, .otherMouseDragged].contains(event.type),
+              let button = mappingButton(of: event) else {
+            return false
+        }
+        return !recognitionLanes.contains { $0.engine.ownsInteraction(containing: button) }
+            && recognitionLanes.contains { $0.engine.hasActiveInteraction }
     }
 
     private func mappingButton(of event: CGEvent) -> Mapping.Button? {

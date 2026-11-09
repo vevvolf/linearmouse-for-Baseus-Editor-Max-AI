@@ -2,6 +2,7 @@
 // Copyright (c) 2021-2026 LinearMouse
 
 import CoreGraphics
+import GestureKit
 import KeyKit
 @testable import LinearMouse
 import XCTest
@@ -296,6 +297,48 @@ final class ButtonMappingTransformerTests: XCTestCase {
             XCTAssertEqual(movement.getDoubleValueField(.mouseEventDeltaX), 5)
             XCTAssertTrue(warped.isEmpty)
         }
+    }
+
+    func testDragWithAnotherButtonDrivesSwipeAndStaysHeld() throws {
+        // Carrying a window with the left button to another Space while M is held for a swipe.
+        var warped = [CGPoint]()
+        var dockPhases = [CGSGesturePhase]()
+        let transformer = ButtonMappingTransformer(
+            mappings: [
+                .init(
+                    trigger: .init(input: .button(.mouse(3))),
+                    outcomes: .init(swipe: .init(left: .arg0(.missionControlSpaceRight)))
+                )
+            ],
+            policy: .configured(by: .init(threshold: 10, lockPointer: true, continuous: true)),
+            scheduleTimer: { _, _ in .init {} },
+            monotonicClock: { 0 },
+            dockSwipeEmitter: .init { _, phase, _, _, _, _ in dockPhases.append(phase) },
+            warpPointer: { warped.append($0) },
+            eventSink: { _ in },
+            syntheticClickEventSink: { _ in }
+        )
+        let context = EventTransformerContext(device: nil)
+        let anchor = CGPoint(x: 100, y: 100)
+
+        let leftDown = try buttonEvent(button: 0, pressed: true)
+        leftDown.location = anchor
+        XCTAssertNotNil(transformer.transform(leftDown, in: context))
+        let swipeDown = try buttonEvent(button: 3, pressed: true)
+        swipeDown.location = anchor
+        XCTAssertNil(transformer.transform(swipeDown, in: context))
+
+        for step in 1 ... 3 {
+            let drag = try draggedEvent(button: 0, deltaX: -20)
+            drag.location = CGPoint(x: 100 - 20 * Double(step), y: 100)
+            let output = transformer.transform(drag, in: context)
+            // The drag keeps reaching the system, held in place like on a trackpad.
+            XCTAssertNotNil(output)
+            XCTAssertEqual(output?.location, anchor)
+        }
+        XCTAssertFalse(warped.isEmpty)
+        XCTAssertEqual(dockPhases.first, .began)
+        XCTAssertTrue(dockPhases.contains(.changed))
     }
 
     func testNewSwipeAfterExpiredChordUsesNewButtonLocation() throws {
