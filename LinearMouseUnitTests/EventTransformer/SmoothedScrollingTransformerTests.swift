@@ -854,15 +854,16 @@ final class SmoothedScrollingTransformerTests: XCTestCase {
         view.ioHidScrollY = ioHidDelta
         return event
     }
-}
 
-private extension [CGEvent] {
-    var firstScrollWheelEvent: CGEvent? {
-        first { $0.type == .scrollWheel }
-    }
+    func testFreeSpinningSideWheelStepsStayControllable() {
+        // Captured: the side wheel jumps from 0.1 to 9+ lines on a slightly faster turn.
+        let lines = [0.1, 0.5, 1, 2, 9, 25].map(SmoothedScrollingTransformer.freeSpinningSideWheelLines)
 
-    var lastScrollWheelEvent: CGEvent? {
-        last { $0.type == .scrollWheel }
+        XCTAssertEqual(lines[0], 0.45)
+        XCTAssertEqual(lines[1], 0.5)
+        XCTAssertLessThan(lines[4], 2)
+        XCTAssertLessThan(lines[5], 2.5)
+        XCTAssertEqual(lines, lines.sorted())
     }
 
     func testFreeSpinningWheelStepsKeepSlowAndFastApart() {
@@ -876,4 +877,15 @@ private extension [CGEvent] {
         XCTAssertLessThan(lines[5], 8)
         XCTAssertEqual(lines, lines.sorted())
     }
+}
+
+private extension [CGEvent] {
+    var firstScrollWheelEvent: CGEvent? {
+        first { $0.type == .scrollWheel }
+    }
+
+    var lastScrollWheelEvent: CGEvent? {
+        last { $0.type == .scrollWheel }
+    }
+
 }

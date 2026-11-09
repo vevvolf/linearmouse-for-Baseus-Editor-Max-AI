@@ -137,10 +137,21 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
         return start * (lines / start).squareRoot()
     }
 
+    /// Lines to scroll for a free-spinning side wheel step the system accelerated to `lines`.
+    ///
+    /// The system accelerates the side wheel far more steeply than the main wheel: a slightly
+    /// faster turn already reports 9 lines per step. Beyond a line its steps therefore grow only
+    /// logarithmically (9 lines scroll about 1.8, 25 lines about 2.4), which keeps it controllable.
+    static func freeSpinningSideWheelLines(_ lines: Double) -> Double {
+        let softened = minimumFreeSpinningWheelStep + 0.6 * log1p(lines)
+        return max(min(lines, softened), minimumFreeSpinningWheelStep)
+    }
+
     /// A free-spinning wheel reports a whole line for every step however slowly it turns, so its
     /// steps use the system's accelerated fractional distance instead.
     private func freeSpinningWheelDelta(
         _ fixedPointDelta: Double,
+        lines: (Double) -> Double,
         view: ScrollWheelEventView,
         in context: EventTransformerContext
     ) -> Double? {
@@ -148,9 +159,8 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
               context.device.map(Self.hasFreeSpinningWheel) == true else {
             return nil
         }
-        let lines = Self.freeSpinningWheelLines(abs(fixedPointDelta))
         let sign: Double = fixedPointDelta > 0 ? 1 : -1
-        return sign * lines * SmoothedScrollEventDelivery.inputLineStepInPoints
+        return sign * lines(abs(fixedPointDelta)) * SmoothedScrollEventDelivery.inputLineStepInPoints
     }
 
     private static func hasFreeSpinningWheel(_ device: Device) -> Bool {
@@ -236,7 +246,12 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
     }
 
     private func deltaXInPixels(from view: ScrollWheelEventView, in context: EventTransformerContext) -> Double {
-        if let delta = freeSpinningWheelDelta(view.deltaXFixedPt, view: view, in: context) {
+        if let delta = freeSpinningWheelDelta(
+            view.deltaXFixedPt,
+            lines: Self.freeSpinningSideWheelLines,
+            view: view,
+            in: context
+        ) {
             return delta
         }
 
@@ -257,7 +272,12 @@ final class SmoothedScrollingTransformer: EventTransformer, Deactivatable {
     }
 
     private func deltaYInPixels(from view: ScrollWheelEventView, in context: EventTransformerContext) -> Double {
-        if let delta = freeSpinningWheelDelta(view.deltaYFixedPt, view: view, in: context) {
+        if let delta = freeSpinningWheelDelta(
+            view.deltaYFixedPt,
+            lines: Self.freeSpinningWheelLines,
+            view: view,
+            in: context
+        ) {
             return delta
         }
 
