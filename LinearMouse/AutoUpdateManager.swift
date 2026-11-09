@@ -25,6 +25,18 @@ class AutoUpdateManager: NSObject {
 }
 
 extension AutoUpdateManager: SPUUpdaterDelegate {
+    /// This build adds Baseus Editor Max support that official releases lack, and the update
+    /// feed serves official releases, so an update would silently replace it. Never update.
+    func updater(_: SPUUpdater, mayPerform _: SPUUpdateCheck) throws {
+        throw NSError(
+            domain: Bundle.main.bundleIdentifier ?? "LinearMouse",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Updates are disabled in this build: official releases lack its Baseus Editor Max support."
+            ]
+        )
+    }
+
     func allowedChannels(for _: SPUUpdater) -> Set<String> {
         Defaults[.betaChannelOn] ? ["beta"] : []
     }
